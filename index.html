@@ -318,7 +318,14 @@ async function load(){
     showLoadError('Couldn\'t read from Firebase', e);
     return;
   }
-  if (!$('newClass').options.length) CLS().forEach(c => $('newClass').add(new Option(c, c)));
+  // rebuilt every load (not just once) so a class renamed/added in Settings shows up
+  // here without a full page reload; keep the current pick if it still exists.
+  {
+    const prevSel = $('newClass').value;
+    $('newClass').innerHTML = '';
+    CLS().forEach(c => $('newClass').add(new Option(c, c)));
+    if (CLS().includes(prevSel)) $('newClass').value = prevSel;
+  }
   // each panel is drawn independently so one bad record can only spoil its own panel
   const panels = {Overview: renderOverview, Students: renderStudents, 'Topic analysis': renderHeatmap,
                   'Class battle': renderBattle, 'Class list': renderRoster, Marking: renderMarking, Settings: renderSettings};
@@ -550,7 +557,7 @@ function markItemHtml(r){
       ${Marker.enabled() && !ai ? `<button class="btn small" onclick="aiSuggest('${r.id}')">🤖 Get AI suggestion</button>` : ''}
     </div>
     ${ai ? `<div class="aibox">
-        <div class="ai-h">🤖 AI suggestion — ${ai.mark}/${r.max} · you decide</div>
+        <div class="ai-h">🤖 AI suggestion — ${ai.mark}/${max} · you decide</div>
         <div>${esc(ai.feedback || '')}</div>
         ${(ai.strengths||[]).length ? `<div style="margin-top:6px"><b style="color:var(--good)">✓</b> ${ai.strengths.map(esc).join(' · ')}</div>` : ''}
         ${(ai.improvements||[]).length ? `<div style="margin-top:4px"><b style="color:var(--gold)">↑</b> ${ai.improvements.map(esc).join(' · ')}</div>` : ''}
@@ -788,7 +795,15 @@ function showDetail(i){
 async function resetPin(name){
   if (!confirm(`Reset ${name}'s PIN? They'll set a new one next time they sign in.`)) return;
   const s = await Store.getStudent(name);
-  if (s) { s.pin = null; await Store.saveStudent(name, s); }
+  if (s) {
+    s.pin = null;
+    await Store.saveStudent(name, s);
+    // keep the in-memory list in sync so the roster stops showing "PIN set"
+    // without needing a manual refresh — same fix as assignClass uses.
+    const local = students.find(x => x.name === name);
+    if (local) local.pin = null;
+    renderRoster();
+  }
   alert('PIN reset.');
 }
 async function wipeStudent(name){
@@ -825,8 +840,12 @@ function renderRoster(){
     const hasPin = !!(stu && stu.pin);
     const cur = classMap[n] || '';
     const jsName = JSON.stringify(n).replace(/"/g,'&quot;');
+    // a class removed in Settings can still be sitting in classMap for this student —
+    // show it instead of silently rendering as unassigned, so the teacher notices it
+    const staleOpt = (cur && !CLS().includes(cur))
+      ? `<option value="${cur}" selected>${esc(cur)} (removed class)</option>` : '';
     const opts = ['<option value="">— unassigned —</option>']
-      .concat(CLS().map(c => `<option value="${c}"${cur===c?' selected':''}>${c}</option>`)).join('');
+      .concat(CLS().map(c => `<option value="${c}"${cur===c?' selected':''}>${c}</option>`)).join('') + staleOpt;
     const pinPill = hasPin
       ? '<span class="pill" style="background:#d9f2e5; color:var(--good)">PIN set</span>'
       : '<span class="pill" style="background:#eef0f8; color:#99a">no PIN yet</span>';
@@ -848,6 +867,18 @@ async function assignClass(name, cls){
 async function addNames(){
   const names = $('newNames').value.split('\n').map(l => l.trim()).filter(Boolean);
   if (!names.length) return;
+  // Two differently-spelled names (e.g. "Anne-Marie" vs "Anne Marie") can slug to the
+  // same Firestore doc id and silently merge into one student record. Catch that
+  // before saving anything — against the existing roster and within the new batch.
+  for (const n of names) {
+    const slug = Store.slug(n);
+    const clash = roster.find(existing => existing !== n && Store.slug(existing) === slug) ||
+      names.find(other => other !== n && Store.slug(other) === slug);
+    if (clash) {
+      alert(`"${n}" and "${clash}" would collide as the same student record (same id once slugified). Fix the names and try again — nothing was added.`);
+      return;
+    }
+  }
   const cls = $('newClass').value;
   await Store.saveRoster([...roster, ...names]);
   if (cls) await Store.setClassesBulk(Object.fromEntries(names.map(n => [n, cls])));
@@ -885,7 +916,12 @@ async function saveClassesSetting(){
   if (!list.length) { alert('Enter at least one class name.'); return; }
   await Store.saveSettings({classes: list});
   CLASSES.length = 0; CLASSES.push(...list);
-  alert('Classes updated: ' + list.join(', '));
+  // saving the class list doesn't touch classMap — a student whose class no longer
+  // exists would otherwise silently drop out of Class battle. Flag it so the teacher
+  // reassigns them on the Class list tab; we never auto-migrate their assignment.
+  const orphaned = Object.entries(classMap).filter(([n,c]) => c && !list.includes(c)).map(([n]) => n);
+  alert('Classes updated: ' + list.join(', ') +
+    (orphaned.length ? '\n\nThese students are assigned to a class that no longer exists — reassign them on the Class list tab:\n' + orphaned.join(', ') : ''));
   load();
 }
 async function saveQuizOptions(){

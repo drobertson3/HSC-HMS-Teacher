@@ -258,6 +258,16 @@ const Store = (() => {
     merged.badges = unionArr(server.badges, local.badges, b => (b && b.id) || JSON.stringify(b));
     merged.wrong = unionArr(server.wrong, local.wrong);
     merged.duelsSettled = unionArr(server.duelsSettled, local.duelsSettled);
+    // duelsSettled is union-merged, so a duel id lost from the blind spread here
+    // never gets re-credited by settleDuels; each w/l/d counter must survive on
+    // its own via per-field max, not by riding along with whichever side "won" the spread.
+    const sd = (server.duels && typeof server.duels === 'object') ? server.duels : {};
+    const ld = (local.duels  && typeof local.duels  === 'object') ? local.duels  : {};
+    merged.duels = {
+      w: Math.max(sd.w || 0, ld.w || 0),
+      l: Math.max(sd.l || 0, ld.l || 0),
+      d: Math.max(sd.d || 0, ld.d || 0),
+    };
     merged.seen = mergeCountMap(server.seen, local.seen);
     merged.lastSeen = {...(server.lastSeen || {})};
     for (const [k, v] of Object.entries(local.lastSeen || {}))
