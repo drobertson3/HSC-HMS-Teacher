@@ -53,6 +53,29 @@ th{color:var(--ink2); font-size:.75rem; text-transform:uppercase; letter-spacing
 .aibox{background:#f2f0fd; border:1px solid #ddd8fa; border-radius:10px; padding:12px; margin-top:12px; font-size:.88rem}
 .aibox .ai-h{font-weight:800; color:var(--accent); font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px}
 .qthumb{max-width:100%; border-radius:8px; border:1px solid var(--line); margin-top:8px}
+/* Questions written for this bank (no exam scan) render as text instead — same
+   markup and class names the student site uses for its stim/table/chart blocks. */
+.qtext{text-align:left; color:#1a1a1a; font-size:.93rem; line-height:1.55; background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:8px}
+.qtext .qstem{margin:0 0 10px; font-weight:600}
+.qtext ol.qopts{list-style:none; margin:0; padding:0; display:grid; gap:5px}
+.qtext ol.qopts li{display:flex; gap:9px; align-items:flex-start}
+.qtext ol.qopts li b{flex:none; width:16px; font-weight:700}
+.qtext .qmarks{margin:8px 0 0; font-weight:700}
+.qtext .qnewtag{display:none}
+.qtext .stimlabel{font-size:.66rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:#6b6f7a; margin-bottom:6px}
+.qtext .stimbox{border:1px solid #d8d8dc; border-radius:8px; padding:10px 12px; margin:0 0 12px; background:#fafafa}
+.qtext .stimbox.extract{font-style:italic; color:#333}
+.qtext .stimtable{width:100%; border-collapse:collapse; font-size:.86rem}
+.qtext .stimtable caption{caption-side:top; text-align:left; font-weight:700; font-style:normal; font-size:.82rem; margin-bottom:6px; color:#1a1a1a}
+.qtext .stimtable th, .qtext .stimtable td{border:1px solid #d8d8dc; padding:5px 8px; text-align:left}
+.qtext .stimtable th{background:#f0f0f2; font-weight:700}
+.qtext .stimchart{margin:0 0 12px; border:1px solid #d8d8dc; border-radius:8px; padding:8px 10px 4px; background:#fff}
+.qtext .stimchart .stimcap{font-weight:700; font-size:.82rem; margin-bottom:4px; color:#1a1a1a}
+.qtext .stimchart svg{width:100%; height:auto; display:block}
+.qtext .stimnote{font-size:.76rem; color:#555; margin-top:6px; font-style:italic}
+.qtext .stimlegend{display:flex; gap:14px; flex-wrap:wrap; font-size:.75rem; margin-top:4px; color:#333}
+.qtext .stimlegend span{display:inline-flex; align-items:center; gap:5px}
+.qtext .stimlegend i{display:inline-block; width:14px; height:3px; border-radius:2px}
 .spread{display:inline-flex; gap:4px; align-items:center}
 .spread span{background:#eef0f8; border-radius:6px; padding:1px 7px; font-size:.78rem; font-weight:700}
 .badgegrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; margin-top:4px}
@@ -428,6 +451,19 @@ function qImgUrl(q){
   const base = (typeof STUDENT_SITE_URL !== 'undefined' && STUDENT_SITE_URL) ? STUDENT_SITE_URL.replace(/\/?$/, '/') : '';
   return base + q.img;
 }
+// Questions written for this bank (src:'new') have no exam scan — render the stem,
+// options/marks and any stimulus (table/chart/extract) as text instead. Identical
+// markup and class names to the student site's stemHTML, so the same q.stim HTML
+// (trusted, hand-authored — never user input) renders unescaped here too.
+function stemHTML(q){
+  const opts = q.options
+    ? '<ol class="qopts">' + ['A','B','C','D'].filter(l => q.options[l])
+        .map(l => `<li><b>${l}</b><span>${esc(q.options[l])}</span></li>`).join('') + '</ol>'
+    : '';
+  const marks = (!q.options && q.marks)
+    ? `<p class="qmarks">${q.marks} mark${q.marks === 1 ? '' : 's'}</p>` : '';
+  return (q.stim || '') + `<p class="qstem">${esc(q.stem)}</p>` + opts + marks;
+}
 const draftMarks = {};   // responseId -> mark the teacher has clicked but not yet approved
 
 function renderMarking(){
@@ -506,7 +542,7 @@ function markItemHtml(r){
     </div>
     ${r.student ? '' : `<p class="muted" style="margin-top:8px; color:var(--bad)">This answer isn't linked to a student, so approving a mark will release it but won't add to anyone's totals. <a href="#" onclick="showRaw('${r.id}');return false;">See what's stored</a>.</p>`}
     ${q ? `<details class="rev"><summary class="muted" style="cursor:pointer; margin-top:8px">Show the question</summary>
-        <img class="qthumb" src="${qImgUrl(q)}" alt="${esc(r.label)}" loading="lazy"></details>` : ''}
+        ${q.src === 'new' ? `<div class="qtext">${stemHTML(q)}</div>` : `<img class="qthumb" src="${qImgUrl(q)}" alt="${esc(r.label)}" loading="lazy">`}</details>` : ''}
     <div style="margin-top:10px"><b>Their answer</b>
       <div class="answerbox" style="margin-top:6px">${esc(r.typed)}</div></div>
     <div class="row" style="margin-top:10px">
