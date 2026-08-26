@@ -50,8 +50,16 @@ const Store = (() => {
   async function getRoster(){
     let names;
     if (cloud) {
-      const snap = await db.collection('students').get();
-      names = snap.docs.map(d => (d.data() || {}).name).filter(Boolean);
+      // Signed-in students AND names the teacher has typed in but who haven't
+      // signed in yet (meta/roster.names). Without the second source, a name
+      // added on the dashboard vanished on the next reload, because saveRoster
+      // had nowhere to put it in cloud mode.
+      const [snap, metaDoc] = await Promise.all([
+        db.collection('students').get(),
+        db.collection('meta').doc('roster').get()
+      ]);
+      const added = metaDoc.exists ? (metaDoc.data().names || []) : [];
+      names = [...snap.docs.map(d => (d.data() || {}).name).filter(Boolean), ...added];
     } else {
       names = lsGet('hscq_roster', []);
     }
@@ -61,11 +69,20 @@ const Store = (() => {
     merged.sort((a,b)=>a.localeCompare(b));
     return merged;
   }
-  // Cloud rosters are derived, so there is nothing to save. Kept for practice mode
-  // and so the dashboard's "add students" path still works offline.
+  // Persist the teacher's list. Names in `clean` are also taken OFF the removed
+  // list — re-adding a previously removed student must actually bring them back,
+  // not leave them permanently hidden by the removed filter.
   async function saveRoster(names){
     const clean = [...new Set(names.map(n=>n.trim()).filter(Boolean))];
-    if (!cloud) lsSet('hscq_roster', clean);
+    if (cloud) {
+      const patch = {names: clean};
+      if (clean.length) patch.removed = firebase.firestore.FieldValue.arrayRemove(...clean);
+      await db.collection('meta').doc('roster').set(patch, {merge:true});
+    } else {
+      lsSet('hscq_roster', clean);
+      const rem = lsGet('hscq_removed', []).filter(n => !clean.includes(n));
+      lsSet('hscq_removed', rem);
+    }
     return clean;
   }
   async function removeFromRoster(name){
